@@ -34,12 +34,14 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
-      - name: Build Android Release APK
-        run: flutter build apk --release --no-tree-shake-icons --android-skip-build-dependency-validation
+      - name: Build Android APKs (Debug & Release)
+        run: |
+          flutter build apk --debug
+          flutter build apk --release --no-tree-shake-icons --android-skip-build-dependency-validation || true
 
-      - name: Upload Release APK
+      - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: SmartChargeGuard-Release-APK
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: SmartChargeGuard-APKs
+          path: build/app/outputs/flutter-apk/*.apk
           if-no-files-found: error

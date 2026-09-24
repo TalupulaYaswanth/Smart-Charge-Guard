@@ -41,6 +41,7 @@ migrate_working_dir/
 
 # Keystore / secrets
 *.keystore
+!android/app/debug.keystore
 *.jks
 *.key
 key.properties
