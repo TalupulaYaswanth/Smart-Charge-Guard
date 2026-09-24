@@ -12,7 +12,7 @@ class MainActivity: FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName).setMethodCallHandler { call: MethodCall, result: MethodChannel.Result ->
             if (call.method == "getApkPath") {
-                val apkPath = context.applicationInfo.sourceDir
+                val apkPath = applicationContext.applicationInfo.sourceDir
                 result.success(apkPath)
             } else {
                 result.notImplemented()
