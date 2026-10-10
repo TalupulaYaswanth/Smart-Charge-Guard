@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import '../models/alarm_track.dart';
 import '../services/battery_service.dart';
 import '../services/alarm_player_service.dart';
@@ -75,10 +74,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
     BatteryService.instance.resetSessionTrigger();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Consumer2<BatteryService, AlarmPlayerService>(
-      builder: (context, batteryService, alarmPlayer, _) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([
+        BatteryService.instance.batteryLevelNotifier,
+        BatteryService.instance.isChargingNotifier,
+        BatteryService.instance.alarmTriggeredNotifier,
+        AlarmPlayerService.instance,
+      ]),
+      builder: (context, _) {
+        final batteryService = BatteryService.instance;
+        final alarmPlayer = AlarmPlayerService.instance;
         final isAlarmPlaying = alarmPlayer.isPlaying;
         final targetPercentage = PreferencesService.instance.targetPercentage;
 

@@ -3,7 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
+import 'models/alarm_track.dart';
+import 'screens/track_selector_modal.dart';
 import 'services/battery_service.dart';
+import 'services/preferences_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,7 +21,9 @@ void main() async {
     ),
   );
 
-  final batteryService = BatteryService();
+  await PreferencesService.instance.init();
+
+  final batteryService = BatteryService.instance;
   await batteryService.initialize();
 
   runApp(const ChargeAlarmApp());
@@ -56,13 +61,20 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  final BatteryService _batteryService = BatteryService();
+  final BatteryService _batteryService = BatteryService.instance;
   final TextEditingController _uriController = TextEditingController();
 
-  String _selectedPlatform = 'Spotify';
+  String _selectedPlatform = 'Search Songs';
+  String _selectedSongTitle = 'Crystal Chime Alert';
+  String _selectedSongArtist = 'Built-in Tone';
+  String? _selectedSongArtwork;
+  int _targetPercentage = 80;
   bool _isProtectionActive = true;
   bool _isSharingApk = false;
-  final List<String> _platforms = ['Spotify', 'JioSaavn', 'Default Ringtone/URL'];
+  bool _isBatteryOptimizationIgnored = false;
+
+  final List<String> _platforms = ['Search Songs', 'Spotify', 'JioSaavn', 'Default Ringtone/URL'];
+  final List<int> _targetOptions = [70, 75, 80, 85, 90, 100];
 
   static const MethodChannel _apkChannel = MethodChannel('com.chargealarm.app/apk_share');
 
@@ -74,11 +86,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _loadPreferences() async {
     final prefs = await SharedPreferences.getInstance();
+    final isIgnoring = await _batteryService.isIgnoringBatteryOptimizations();
+
     setState(() {
-      _selectedPlatform = prefs.getString('music_platform') ?? 'Spotify';
+      _selectedPlatform = prefs.getString('music_platform') ?? 'Search Songs';
       _uriController.text = prefs.getString('music_uri') ?? '';
+      _selectedSongTitle = prefs.getString('selected_song_title') ?? 'Crystal Chime Alert';
+      _selectedSongArtist = prefs.getString('selected_song_artist') ?? 'Built-in Tone';
+      _selectedSongArtwork = prefs.getString('selected_song_artwork');
+      _targetPercentage = prefs.getInt('target_percentage') ?? 80;
       _isProtectionActive = prefs.getBool('alarm_protection_enabled') ?? true;
+      _isBatteryOptimizationIgnored = isIgnoring;
     });
+
     _batteryService.setProtectionActive(_isProtectionActive);
   }
 
@@ -86,6 +106,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('music_platform', _selectedPlatform);
     await prefs.setString('music_uri', _uriController.text.trim());
+    await prefs.setInt('target_percentage', _targetPercentage);
+    await prefs.setString('selected_song_title', _selectedSongTitle);
+    await prefs.setString('selected_song_artist', _selectedSongArtist);
+    if (_selectedSongArtwork != null) {
+      await prefs.setString('selected_song_artwork', _selectedSongArtwork!);
+    }
+
+    await _batteryService.updateConfig(
+      targetLevel: _targetPercentage,
+      musicPlatform: _selectedPlatform,
+      musicUri: _uriController.text.trim(),
+    );
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -95,6 +128,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
       );
     }
+  }
+
+  void _openSongSelectorModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => TrackSelectorModal(
+        onTrackSelected: (AlarmTrack track) async {
+          setState(() {
+            _selectedPlatform = 'Search Songs';
+            _uriController.text = track.previewUrl;
+            _selectedSongTitle = track.title;
+            _selectedSongArtist = track.artist;
+            _selectedSongArtwork = track.albumArtUrl;
+          });
+
+          await _savePreferences();
+        },
+      ),
+    );
+  }
+
+  Future<void> _requestBatteryOptimizationExemption() async {
+    final ignored = await _batteryService.requestIgnoreBatteryOptimizations();
+    setState(() => _isBatteryOptimizationIgnored = ignored);
   }
 
   /// Extracts the currently installed APK and shares it directly via WhatsApp / system share
@@ -117,9 +176,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           subject: 'ChargeAlarm APK File',
         );
       } else {
-        // Fallback: Share project instructions & direct download link
         await Share.share(
-          '🔋 ChargeAlarm App: Protect your phone battery health at 80% charging with Spotify & JioSaavn music alarms!',
+          '🔋 ChargeAlarm App: Protect your phone battery health at 80% charging with Spotify, JioSaavn & Music alarms!',
           subject: 'ChargeAlarm Android App',
         );
       }
@@ -141,18 +199,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   String _getHintForPlatform(String platform) {
     switch (platform) {
+      case 'Search Songs':
+        return 'Audio stream link or select a song from catalog';
       case 'Spotify':
         return 'e.g. spotify:track:4cOdK2wGLETKBW3PvgPWqT or song URL';
       case 'JioSaavn':
         return 'e.g. jiosaavn:// or https://www.jiosaavn.com/song/...';
       case 'Default Ringtone/URL':
       default:
-        return 'e.g. https://... or leave empty for default alarm chime';
+        return 'e.g. https://... (or leave empty for loud system alarm)';
     }
   }
 
   IconData _getIconForPlatform(String platform) {
     switch (platform) {
+      case 'Search Songs':
+        return Icons.queue_music_rounded;
       case 'Spotify':
         return Icons.music_note_rounded;
       case 'JioSaavn':
@@ -210,7 +272,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Alarm Triggered Banner
+              // Active Alarm Firing Banner
               ValueListenableBuilder<bool>(
                 valueListenable: _batteryService.alarmTriggeredNotifier,
                 builder: (context, triggered, _) {
@@ -236,20 +298,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       children: [
                         const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 32),
                         const SizedBox(width: 12),
-                        const Expanded(
+                        Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'BATTERY HIT 80%!',
-                                style: TextStyle(
+                                'BATTERY HIT $_targetPercentage%!',
+                                style: const TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w900,
                                   fontSize: 16,
                                 ),
                               ),
-                              Text(
-                                'Unplug charger now to protect battery.',
+                              const Text(
+                                'Unplug charger now to protect battery health.',
                                 style: TextStyle(color: Colors.white, fontSize: 12),
                               ),
                             ],
@@ -263,7 +325,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               borderRadius: BorderRadius.circular(10),
                             ),
                           ),
-                          onPressed: () => _batteryService.resetAlarm(),
+                          onPressed: () => _batteryService.stopAlarm(),
                           child: const Text('DISMISS', style: TextStyle(fontWeight: FontWeight.bold)),
                         ),
                       ],
@@ -285,11 +347,68 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 },
               ),
 
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
 
-              // Master 80% Protection Alarm Switch
+              // Sleep-Mode Safe Background Service Status Badge
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF131C2D),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFF00E676).withOpacity(0.2)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF00E676).withOpacity(0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.shield_moon_rounded, color: Color(0xFF00E676), size: 18),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Sleep-Mode Safe Foreground Service',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            'Wakes screen and rings alarm when phone is locked.',
+                            style: TextStyle(color: Colors.white54, fontSize: 11),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (!_isBatteryOptimizationIgnored)
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        onPressed: _requestBatteryOptimizationExemption,
+                        child: const Text(
+                          'DISABLE SAVER',
+                          style: TextStyle(color: Color(0xFF00E5FF), fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Master Protection Alarm Switch
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                 decoration: BoxDecoration(
                   color: const Color(0xFF161F33),
                   borderRadius: BorderRadius.circular(20),
@@ -310,28 +429,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Icon(
-                        Icons.shield_rounded,
+                        Icons.power_settings_new_rounded,
                         color: _isProtectionActive ? const Color(0xFF00E676) : Colors.white38,
-                        size: 26,
+                        size: 24,
                       ),
                     ),
                     const SizedBox(width: 14),
-                    const Expanded(
+                    Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            '80% Charge Protection Alarm',
-                            style: TextStyle(
+                            '$_targetPercentage% Charge Protection Alarm',
+                            style: const TextStyle(
                               color: Colors.white,
                               fontSize: 15,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                          SizedBox(height: 3),
-                          Text(
-                            'Triggers music when 80% is reached while plugged in.',
-                            style: TextStyle(color: Colors.white54, fontSize: 12),
+                          const SizedBox(height: 2),
+                          const Text(
+                            'Rings song out loud when plugged in reaches threshold.',
+                            style: TextStyle(color: Colors.white54, fontSize: 11),
                           ),
                         ],
                       ),
@@ -351,11 +470,65 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
               ),
 
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
 
-              // Music Platform Selector & Custom URL Configuration Card
+              // Target Percentage Chooser Chips
               Container(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF161F33),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white.withOpacity(0.06)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Target Alarm Threshold',
+                          style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          '80% is recommended',
+                          style: TextStyle(color: Color(0xFF00E676), fontSize: 11, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      children: _targetOptions.map((target) {
+                        final isSelected = _targetPercentage == target;
+                        return ChoiceChip(
+                          label: Text('$target%'),
+                          selected: isSelected,
+                          selectedColor: const Color(0xFF00E676),
+                          backgroundColor: const Color(0xFF0E1626),
+                          labelStyle: TextStyle(
+                            color: isSelected ? Colors.black : Colors.white70,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          ),
+                          side: BorderSide(
+                            color: isSelected ? const Color(0xFF00E676) : Colors.white12,
+                          ),
+                          onSelected: (_) {
+                            setState(() => _targetPercentage = target);
+                            _savePreferences();
+                          },
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              // Music Platform Selector & Custom Song Card
+              Container(
+                padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
                   color: const Color(0xFF161F33),
                   borderRadius: BorderRadius.circular(20),
@@ -365,7 +538,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      'Alarm Music Platform',
+                      'Alarm Song / Music Source',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 15,
@@ -377,12 +550,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     // Platform Selection Chips
                     Wrap(
                       spacing: 8,
+                      runSpacing: 8,
                       children: _platforms.map((platform) {
                         final isSelected = _selectedPlatform == platform;
                         return ChoiceChip(
                           avatar: Icon(
                             _getIconForPlatform(platform),
-                            size: 18,
+                            size: 16,
                             color: isSelected ? Colors.black : Colors.white70,
                           ),
                           label: Text(
@@ -390,6 +564,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             style: TextStyle(
                               color: isSelected ? Colors.black : Colors.white,
                               fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                              fontSize: 12,
                             ),
                           ),
                           selected: isSelected,
@@ -405,20 +580,111 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       }).toList(),
                     ),
 
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 16),
+
+                    // Search & Select Songs Catalog Button
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF00E5FF).withOpacity(0.15),
+                          foregroundColor: const Color(0xFF00E5FF),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            side: const BorderSide(color: Color(0xFF00E5FF), width: 1.2),
+                          ),
+                        ),
+                        icon: const Icon(Icons.search_rounded, size: 20),
+                        label: const Text(
+                          'SEARCH & SELECT ANY SONG 🎵',
+                          style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                        ),
+                        onPressed: _openSongSelectorModal,
+                      ),
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    // Selected Song Card
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0E1626),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.white10),
+                      ),
+                      child: Row(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: _selectedSongArtwork != null && _selectedSongArtwork!.isNotEmpty
+                                ? Image.network(
+                                    _selectedSongArtwork!,
+                                    width: 44,
+                                    height: 44,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => Container(
+                                      width: 44,
+                                      height: 44,
+                                      color: const Color(0xFF00E5FF).withOpacity(0.1),
+                                      child: const Icon(Icons.music_note, color: Color(0xFF00E5FF)),
+                                    ),
+                                  )
+                                : Container(
+                                    width: 44,
+                                    height: 44,
+                                    color: const Color(0xFF00E5FF).withOpacity(0.1),
+                                    child: const Icon(Icons.music_note, color: Color(0xFF00E5FF)),
+                                  ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _selectedSongTitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                                Text(
+                                  _selectedSongArtist,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(color: Colors.white54, fontSize: 11),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.edit_rounded, color: Color(0xFF00E5FF), size: 20),
+                            tooltip: 'Change Song',
+                            onPressed: _openSongSelectorModal,
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 16),
 
                     // Song Link / URI Input Field
                     Text(
-                      '$_selectedPlatform Track URI / URL / Query',
-                      style: const TextStyle(color: Colors.white70, fontSize: 13),
+                      '$_selectedPlatform Track URL / URI',
+                      style: const TextStyle(color: Colors.white70, fontSize: 12),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 6),
                     TextField(
                       controller: _uriController,
-                      style: const TextStyle(color: Colors.white, fontSize: 14),
+                      style: const TextStyle(color: Colors.white, fontSize: 13),
                       decoration: InputDecoration(
                         hintText: _getHintForPlatform(_selectedPlatform),
-                        hintStyle: const TextStyle(color: Colors.white30, fontSize: 13),
+                        hintStyle: const TextStyle(color: Colors.white30, fontSize: 12),
                         filled: true,
                         fillColor: const Color(0xFF0E1626),
                         border: OutlineInputBorder(
@@ -427,41 +693,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                         suffixIcon: IconButton(
                           icon: const Icon(Icons.save_rounded, color: Color(0xFF00E676)),
-                          tooltip: 'Save Music Target',
+                          tooltip: 'Save Target',
                           onPressed: _savePreferences,
                         ),
                       ),
                       onSubmitted: (_) => _savePreferences(),
                     ),
-
-                    const SizedBox(height: 16),
-
-                    // Save configuration button
-                    SizedBox(
-                      width: double.infinity,
-                      height: 48,
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF1E293B),
-                          foregroundColor: const Color(0xFF00E5FF),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            side: const BorderSide(color: Color(0xFF00E5FF), width: 1.2),
-                          ),
-                        ),
-                        icon: const Icon(Icons.check_rounded, size: 20),
-                        label: const Text(
-                          'SAVE MUSIC CONFIG',
-                          style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5),
-                        ),
-                        onPressed: _savePreferences,
-                      ),
-                    ),
                   ],
                 ),
               ),
 
-              const SizedBox(height: 20),
+              const SizedBox(height: 18),
 
               // Action Buttons: Test Alarm & Share APK via WhatsApp
               Row(
@@ -497,7 +739,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       height: 52,
                       child: OutlinedButton.icon(
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFF25D366), // WhatsApp Green
+                          foregroundColor: const Color(0xFF25D366),
                           side: const BorderSide(color: Color(0xFF25D366), width: 1.6),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14),
@@ -524,7 +766,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ],
               ),
 
-              const SizedBox(height: 18),
+              const SizedBox(height: 12),
+
+              // Stop Alarm Button (Visible when test alarm or active alarm is ringing)
+              ValueListenableBuilder<bool>(
+                valueListenable: _batteryService.alarmTriggeredNotifier,
+                builder: (context, triggered, _) {
+                  if (!triggered) return const SizedBox.shrink();
+                  return SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFF1744),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      icon: const Icon(Icons.stop_circle_rounded),
+                      label: const Text(
+                        'STOP ACTIVE ALARM',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      onPressed: () => _batteryService.stopAlarm(),
+                    ),
+                  );
+                },
+              ),
+
+              const SizedBox(height: 20),
             ],
           ),
         ),
@@ -535,7 +806,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildBatteryDisplayCard(int level, bool isCharging) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
+      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
       decoration: BoxDecoration(
         color: const Color(0xFF161F33),
         borderRadius: BorderRadius.circular(24),
@@ -579,7 +850,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -588,7 +859,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 '$level',
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 72,
+                  fontSize: 70,
                   fontWeight: FontWeight.w900,
                   letterSpacing: -2,
                 ),
@@ -606,13 +877,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
-            isCharging && level >= 80
-                ? '🎯 Target 80% Reached — Unplug Device'
-                : 'Target: 80% Battery Health Protection',
+            isCharging && level >= _targetPercentage
+                ? '🎯 Target $_targetPercentage% Reached — Unplug Device'
+                : 'Target: $_targetPercentage% Battery Health Protection',
             style: TextStyle(
-              color: isCharging && level >= 80 ? const Color(0xFFFF5252) : const Color(0xFF00E5FF),
+              color: isCharging && level >= _targetPercentage
+                  ? const Color(0xFFFF5252)
+                  : const Color(0xFF00E5FF),
               fontWeight: FontWeight.w600,
               fontSize: 13,
             ),
