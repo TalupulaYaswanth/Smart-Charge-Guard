@@ -464,7 +464,7 @@ class BatteryMonitoringService : Service() {
 
     private fun showAlarmNotification() {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        val pendingFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         } else {
             PendingIntent.FLAG_UPDATE_CURRENT
@@ -474,16 +474,16 @@ class BatteryMonitoringService : Service() {
         val fullScreenIntent = Intent(this, MainActivity::class.java).apply {
             action = Intent.ACTION_MAIN
             addCategory(Intent.CATEGORY_LAUNCHER)
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             putExtra("alarmTriggered", true)
         }
-        val fullScreenPendingIntent = PendingIntent.getActivity(this, 8081, fullScreenIntent, flags)
+        val fullScreenPendingIntent = PendingIntent.getActivity(this, 8081, fullScreenIntent, pendingFlags)
 
         // STOP Action Intent
         val stopIntent = Intent(this, AlarmActionReceiver::class.java).apply {
             action = ACTION_STOP_ALARM
         }
-        val stopPendingIntent = PendingIntent.getBroadcast(this, 8082, stopIntent, flags)
+        val stopPendingIntent = PendingIntent.getBroadcast(this, 8082, stopIntent, pendingFlags)
 
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, CHANNEL_ALARM)
@@ -507,19 +507,19 @@ class BatteryMonitoringService : Service() {
         if (musicPlatform.equals("Spotify", ignoreCase = true)) {
             val spotifyTarget = if (musicUri.isNotBlank()) musicUri else "spotify:search:wake%20up"
             val spotifyIntent = Intent(Intent.ACTION_VIEW, Uri.parse(spotifyTarget)).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             if (spotifyIntent.resolveActivity(packageManager) != null) {
-                val spotifyPending = PendingIntent.getActivity(this, 8083, spotifyIntent, flags)
+                val spotifyPending = PendingIntent.getActivity(this, 8083, spotifyIntent, pendingFlags)
                 builder.addAction(android.R.drawable.ic_media_play, "OPEN SPOTIFY", spotifyPending)
             }
         } else if (musicPlatform.equals("JioSaavn", ignoreCase = true)) {
             val saavnTarget = if (musicUri.isNotBlank()) musicUri else "jiosaavn://"
             val saavnIntent = Intent(Intent.ACTION_VIEW, Uri.parse(saavnTarget)).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             if (saavnIntent.resolveActivity(packageManager) != null) {
-                val saavnPending = PendingIntent.getActivity(this, 8084, saavnIntent, flags)
+                val saavnPending = PendingIntent.getActivity(this, 8084, saavnIntent, pendingFlags)
                 builder.addAction(android.R.drawable.ic_media_play, "OPEN JIOSAAVN", saavnPending)
             }
         }
@@ -534,16 +534,16 @@ class BatteryMonitoringService : Service() {
     }
 
     private fun buildMonitorNotification(level: Int, charging: Boolean): Notification {
-        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        val pendingFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         } else {
             PendingIntent.FLAG_UPDATE_CURRENT
         }
 
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         }
-        val pendingIntent = PendingIntent.getActivity(this, 1001, openAppIntent, flags)
+        val pendingIntent = PendingIntent.getActivity(this, 1001, openAppIntent, pendingFlags)
 
         val title = if (charging) {
             "⚡ ChargeAlarm Active (Battery: $level%)"
