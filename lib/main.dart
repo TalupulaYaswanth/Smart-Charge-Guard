@@ -1047,7 +1047,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 backgroundColor: const Color(0xFF182338),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                 onPressed: () {
-                                  _uriController.text = 'spotify:search:${Uri.encode(preset)}';
+                                  _uriController.text = 'spotify:search:${Uri.encodeComponent(preset)}';
                                   _selectedSongTitle = 'Spotify: $preset';
                                   _selectedSongArtist = 'Spotify Playlist Search';
                                   _savePreferences(showFeedback: false);
@@ -1171,7 +1171,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 backgroundColor: const Color(0xFF182338),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                 onPressed: () {
-                                  _uriController.text = 'jiosaavn://search/${Uri.encode(preset)}';
+                                  _uriController.text = 'jiosaavn://search/${Uri.encodeComponent(preset)}';
                                   _selectedSongTitle = 'JioSaavn: $preset';
                                   _selectedSongArtist = 'JioSaavn Playlist';
                                   _savePreferences(showFeedback: false);

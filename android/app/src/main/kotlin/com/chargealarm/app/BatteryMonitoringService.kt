@@ -12,6 +12,7 @@ import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.net.Uri
@@ -551,6 +552,25 @@ class BatteryMonitoringService : Service() {
     private fun startAlarmAudio(platform: String, uriString: String) {
         stopAlarmAudio()
         try {
+            // Ensure both Alarm & Music streams have audible volume just like a default system alarm
+            val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            if (audioManager != null) {
+                try {
+                    val maxAlarmVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+                    val curAlarmVol = audioManager.getStreamVolume(AudioManager.STREAM_ALARM)
+                    if (curAlarmVol < (maxAlarmVol * 0.7).toInt()) {
+                        audioManager.setStreamVolume(AudioManager.STREAM_ALARM, (maxAlarmVol * 0.85).toInt(), 0)
+                    }
+                    val maxMusicVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                    val curMusicVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                    if (curMusicVol < (maxMusicVol * 0.7).toInt()) {
+                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, (maxMusicVol * 0.85).toInt(), 0)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to adjust stream volume: ${e.message}")
+                }
+            }
+
             val player = MediaPlayer().apply {
                 setWakeMode(applicationContext, PowerManager.PARTIAL_WAKE_LOCK)
                 setAudioAttributes(
