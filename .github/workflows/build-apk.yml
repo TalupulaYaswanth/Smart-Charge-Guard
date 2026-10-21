@@ -38,14 +38,19 @@ jobs:
         run: flutter pub get
 
       - name: Build Android Debug APK
-        run: flutter build apk --debug
+        run: |
+          flutter build apk --debug
+          mkdir -p output-apks
+          cp build/app/outputs/flutter-apk/app-debug.apk output-apks/
 
       - name: Build Android Release APK
-        run: flutter build apk --release --no-tree-shake-icons || true
+        run: |
+          flutter build apk --release --no-tree-shake-icons
+          cp build/app/outputs/flutter-apk/app-release.apk output-apks/
 
       - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: SmartChargeGuard-APKs
-          path: build/app/outputs/flutter-apk/*.apk
+          path: output-apks/*.apk
           if-no-files-found: error

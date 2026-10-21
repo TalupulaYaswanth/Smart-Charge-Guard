@@ -13,6 +13,10 @@
     public static int d(...);
 }
 
+# Don't warn on missing optional classes in plugins
+-dontwarn **
+-ignorewarnings
+
 # Flutter Embedding & Method Channels (keep entry points)
 -keep class io.flutter.app.** { *; }
 -keep class io.flutter.plugin.**  { *; }
@@ -20,6 +24,10 @@
 -keep class io.flutter.view.**  { *; }
 -keep class io.flutter.**  { *; }
 -keep class io.flutter.plugins.**  { *; }
+
+# Flutter Local Notifications
+-keep class com.dexterous.** { *; }
+-dontwarn com.dexterous.**
 
 # Keep App Components (Activities, Services, Receivers)
 -keep public class com.chargealarm.app.MainActivity {
