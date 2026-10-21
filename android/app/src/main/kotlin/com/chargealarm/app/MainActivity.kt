@@ -128,8 +128,91 @@ class MainActivity: FlutterActivity() {
                     val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
                     result.success(powerManager.isIgnoringBatteryOptimizations(packageName))
                 }
+                "isAppInstalled" -> {
+                    val targetPackage = call.argument<String>("packageName") ?: ""
+                    result.success(isPackageInstalled(targetPackage))
+                }
+                "openAppOrUri" -> {
+                    val platform = call.argument<String>("platform") ?: "Spotify"
+                    val uri = call.argument<String>("uri") ?: ""
+                    val launched = BatteryMonitoringService.launchMusicApp(this, platform, uri)
+                    result.success(launched)
+                }
+                "getSecurityStatus" -> {
+                    val isRooted = checkDeviceRoot()
+                    val isDebugger = checkDebuggerAttached()
+                    val isEmulator = checkIsEmulator()
+                    result.success(
+                        mapOf(
+                            "isRooted" to isRooted,
+                            "isDebugger" to isDebugger,
+                            "isEmulator" to isEmulator,
+                            "isSecure" to (!isRooted && !isDebugger)
+                        )
+                    )
+                }
+                "setScreenSecure" -> {
+                    val enable = call.argument<Boolean>("enable") ?: false
+                    runOnUiThread {
+                        if (enable) {
+                            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                        } else {
+                            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+                        }
+                    }
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    private fun checkDeviceRoot(): Boolean {
+        val rootPaths = arrayOf(
+            "/system/app/Superuser.apk",
+            "/sbin/su",
+            "/system/bin/su",
+            "/system/xbin/su",
+            "/data/local/xbin/su",
+            "/data/local/bin/su",
+            "/system/sd/xbin/su",
+            "/system/bin/failsafe/su",
+            "/data/local/su"
+        )
+        for (path in rootPaths) {
+            try {
+                if (java.io.File(path).exists()) return true
+            } catch (_: Exception) {}
+        }
+        val buildTags = Build.TAGS
+        if (buildTags != null && buildTags.contains("test-keys")) {
+            return true
+        }
+        return false
+    }
+
+    private fun checkDebuggerAttached(): Boolean {
+        return android.os.Debug.isDebuggerConnected() || android.os.Debug.waitingForDebugger()
+    }
+
+    private fun checkIsEmulator(): Boolean {
+        return (Build.FINGERPRINT.startsWith("generic")
+                || Build.FINGERPRINT.startsWith("unknown")
+                || Build.MODEL.contains("google_sdk")
+                || Build.MODEL.contains("Emulator")
+                || Build.MODEL.contains("Android SDK built for x86")
+                || Build.MANUFACTURER.contains("Genymotion")
+                || (Build.BRAND.startsWith("generic") && Build.DEVICE.startsWith("generic"))
+                || "google_sdk" == Build.PRODUCT)
+    }
+
+    private fun isPackageInstalled(packageName: String): Boolean {
+        if (packageName.isBlank()) return false
+        return try {
+            packageManager.getPackageInfo(packageName, 0)
+            true
+        } catch (_: Exception) {
+            false
         }
     }
 

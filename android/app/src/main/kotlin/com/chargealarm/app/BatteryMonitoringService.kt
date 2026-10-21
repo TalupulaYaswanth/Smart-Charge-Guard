@@ -23,6 +23,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
+import android.view.KeyEvent
 
 class BatteryMonitoringService : Service() {
 
@@ -92,6 +93,187 @@ class BatteryMonitoringService : Service() {
                 "batteryLevel" to lastBatteryLevel,
                 "isCharging" to lastIsCharging
             )
+        }
+
+        fun launchMusicApp(context: Context, platform: String, uri: String): Boolean {
+            return try {
+                val intent = createPlatformLaunchIntent(context, platform, uri)
+                if (intent != null) {
+                    context.startActivity(intent)
+                    sendMediaPlayBroadcast(context, getPackageForPlatform(platform))
+                    true
+                } else {
+                    false
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to launch music app: ${e.message}")
+                false
+            }
+        }
+
+        fun getPackageForPlatform(platform: String): String? {
+            return when {
+                platform.contains("Spotify", ignoreCase = true) -> "com.spotify.music"
+                platform.contains("JioSaavn", ignoreCase = true) -> "com.jiosaavn.android"
+                platform.contains("YouTube Music", ignoreCase = true) -> "com.google.android.apps.youtube.music"
+                platform.contains("YouTube", ignoreCase = true) -> "com.google.android.youtube"
+                else -> null
+            }
+        }
+
+        fun normalizeSpotifyUri(input: String): String {
+            val trimmed = input.trim()
+            if (trimmed.isEmpty()) return "spotify:search:wake%20up"
+            if (trimmed.startsWith("spotify:")) return trimmed
+            val trackMatch = Regex("""open\.spotify\.com/track/([a-zA-Z0-9]+)""").find(trimmed)
+            if (trackMatch != null) return "spotify:track:${trackMatch.groupValues[1]}"
+            val playlistMatch = Regex("""open\.spotify\.com/playlist/([a-zA-Z0-9]+)""").find(trimmed)
+            if (playlistMatch != null) return "spotify:playlist:${playlistMatch.groupValues[1]}"
+            val albumMatch = Regex("""open\.spotify\.com/album/([a-zA-Z0-9]+)""").find(trimmed)
+            if (albumMatch != null) return "spotify:album:${albumMatch.groupValues[1]}"
+            if (!trimmed.startsWith("http")) {
+                return "spotify:search:${Uri.encode(trimmed)}"
+            }
+            return trimmed
+        }
+
+        fun createPlatformLaunchIntent(context: Context, platform: String, uriString: String): Intent? {
+            val pm = context.packageManager
+            val trimmed = uriString.trim()
+
+            // Security: Strictly disallow dangerous file / content / script URI schemes
+            if (trimmed.startsWith("file:", ignoreCase = true) ||
+                trimmed.startsWith("content:", ignoreCase = true) ||
+                trimmed.startsWith("javascript:", ignoreCase = true) ||
+                trimmed.startsWith("data:", ignoreCase = true)) {
+                Log.w(TAG, "Rejected potentially dangerous URI scheme: $trimmed")
+                return null
+            }
+
+            if (platform.contains("Spotify", ignoreCase = true)) {
+                val spotifyTarget = normalizeSpotifyUri(trimmed)
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(spotifyTarget)).apply {
+                    setPackage("com.spotify.music")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                }
+                if (intent.resolveActivity(pm) != null) return intent
+
+                val fallback = pm.getLaunchIntentForPackage("com.spotify.music")
+                if (fallback != null) {
+                    fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    return fallback
+                }
+
+                return Intent(Intent.ACTION_VIEW, Uri.parse(if (trimmed.startsWith("http")) trimmed else "https://open.spotify.com")).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            }
+
+            if (platform.contains("JioSaavn", ignoreCase = true)) {
+                val target = if (trimmed.isNotEmpty()) {
+                    if (trimmed.startsWith("http") || trimmed.startsWith("jiosaavn:")) trimmed
+                    else "jiosaavn://search/${Uri.encode(trimmed)}"
+                } else {
+                    "jiosaavn://"
+                }
+
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(target)).apply {
+                    setPackage("com.jiosaavn.android")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                }
+                if (intent.resolveActivity(pm) != null) return intent
+
+                val fallback = pm.getLaunchIntentForPackage("com.jiosaavn.android")
+                if (fallback != null) {
+                    fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    return fallback
+                }
+
+                return Intent(Intent.ACTION_VIEW, Uri.parse(if (trimmed.startsWith("http")) trimmed else "https://www.jiosaavn.com")).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            }
+
+            if (platform.contains("YouTube Music", ignoreCase = true)) {
+                val target = if (trimmed.isNotEmpty()) {
+                    if (trimmed.startsWith("http")) trimmed
+                    else "https://music.youtube.com/search?q=${Uri.encode(trimmed)}"
+                } else {
+                    "https://music.youtube.com"
+                }
+
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(target)).apply {
+                    setPackage("com.google.android.apps.youtube.music")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                }
+                if (intent.resolveActivity(pm) != null) return intent
+
+                val fallback = pm.getLaunchIntentForPackage("com.google.android.apps.youtube.music")
+                if (fallback != null) {
+                    fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    return fallback
+                }
+
+                return Intent(Intent.ACTION_VIEW, Uri.parse(target)).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            }
+
+            if (platform.contains("YouTube", ignoreCase = true)) {
+                val target = if (trimmed.isNotEmpty()) {
+                    if (trimmed.startsWith("http") || trimmed.startsWith("vnd.youtube")) trimmed
+                    else "https://www.youtube.com/results?search_query=${Uri.encode(trimmed)}"
+                } else {
+                    "https://www.youtube.com"
+                }
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(target)).apply {
+                    setPackage("com.google.android.youtube")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                }
+                if (intent.resolveActivity(pm) != null) return intent
+
+                return Intent(Intent.ACTION_VIEW, Uri.parse(target)).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            }
+
+            return null
+        }
+
+        fun sendMediaPlayBroadcast(context: Context, targetPackage: String?) {
+            try {
+                val downIntent = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
+                    putExtra(Intent.EXTRA_KEY_EVENT, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY))
+                    if (!targetPackage.isNullOrBlank()) {
+                        setPackage(targetPackage)
+                    }
+                }
+                context.sendOrderedBroadcast(downIntent, null)
+
+                val upIntent = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
+                    putExtra(Intent.EXTRA_KEY_EVENT, KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PLAY))
+                    if (!targetPackage.isNullOrBlank()) {
+                        setPackage(targetPackage)
+                    }
+                }
+                context.sendOrderedBroadcast(upIntent, null)
+            } catch (e: Exception) {
+                Log.w(TAG, "Media play broadcast error: ${e.message}")
+            }
+        }
+
+        fun sendMediaPauseBroadcast(context: Context) {
+            try {
+                val downIntent = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
+                    putExtra(Intent.EXTRA_KEY_EVENT, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PAUSE))
+                }
+                context.sendOrderedBroadcast(downIntent, null)
+
+                val upIntent = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
+                    putExtra(Intent.EXTRA_KEY_EVENT, KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_MEDIA_PAUSE))
+                }
+                context.sendOrderedBroadcast(upIntent, null)
+            } catch (_: Exception) {}
         }
     }
 
@@ -277,13 +459,16 @@ class BatteryMonitoringService : Service() {
         // 2. Start repeating pulsing vibration
         startVibrating()
 
-        // 3. Play alarm audio / song loud on ALARM audio stream
+        // 3. Play alarm audio / song loud on ALARM audio stream (audible safety backup)
         startAlarmAudio(musicPlatform, musicUri)
 
-        // 4. Show high-priority heads-up & full-screen notification
+        // 4. Launch target music platform app (Spotify, JioSaavn, YouTube Music, etc.)
+        launchMusicApp(this, musicPlatform, musicUri)
+
+        // 5. Show high-priority heads-up & full-screen notification
         showAlarmNotification()
 
-        // 5. Notify Flutter UI
+        // 6. Notify Flutter UI
         MainActivity.notifyAlarmTriggered(currentLevel)
     }
 
@@ -293,6 +478,7 @@ class BatteryMonitoringService : Service() {
 
         stopAlarmAudio()
         stopVibrating()
+        sendMediaPauseBroadcast(this)
 
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.cancel(NOTIFICATION_ALARM_ID)
@@ -377,7 +563,14 @@ class BatteryMonitoringService : Service() {
             }
 
             var streamingUrl = false
-            if (uriString.isNotBlank() && (uriString.startsWith("http://") || uriString.startsWith("https://"))) {
+            val isCustomStream = uriString.isNotBlank() &&
+                    (uriString.startsWith("http://") || uriString.startsWith("https://")) &&
+                    !uriString.contains("open.spotify.com") &&
+                    !uriString.contains("jiosaavn.com") &&
+                    !uriString.contains("youtube.com") &&
+                    !uriString.contains("youtu.be")
+
+            if (isCustomStream) {
                 try {
                     player.setDataSource(applicationContext, Uri.parse(uriString.trim()))
                     player.setOnPreparedListener { mp ->
@@ -503,25 +696,18 @@ class BatteryMonitoringService : Service() {
             .setCategory(Notification.CATEGORY_ALARM)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "STOP ALARM", stopPendingIntent)
 
-        // Add direct app launch action if Spotify or JioSaavn
-        if (musicPlatform.equals("Spotify", ignoreCase = true)) {
-            val spotifyTarget = if (musicUri.isNotBlank()) musicUri else "spotify:search:wake%20up"
-            val spotifyIntent = Intent(Intent.ACTION_VIEW, Uri.parse(spotifyTarget)).apply {
-                setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        // Add direct app launch action if Spotify, JioSaavn, YouTube Music, or other platforms
+        val platformLaunchIntent = createPlatformLaunchIntent(this, musicPlatform, musicUri)
+        if (platformLaunchIntent != null) {
+            val platformPending = PendingIntent.getActivity(this, 8083, platformLaunchIntent, pendingFlags)
+            val actionTitle = when {
+                musicPlatform.contains("Spotify", ignoreCase = true) -> "OPEN SPOTIFY"
+                musicPlatform.contains("JioSaavn", ignoreCase = true) -> "OPEN JIOSAAVN"
+                musicPlatform.contains("YouTube Music", ignoreCase = true) -> "OPEN YT MUSIC"
+                musicPlatform.contains("YouTube", ignoreCase = true) -> "OPEN YOUTUBE"
+                else -> "OPEN MUSIC"
             }
-            if (spotifyIntent.resolveActivity(packageManager) != null) {
-                val spotifyPending = PendingIntent.getActivity(this, 8083, spotifyIntent, pendingFlags)
-                builder.addAction(android.R.drawable.ic_media_play, "OPEN SPOTIFY", spotifyPending)
-            }
-        } else if (musicPlatform.equals("JioSaavn", ignoreCase = true)) {
-            val saavnTarget = if (musicUri.isNotBlank()) musicUri else "jiosaavn://"
-            val saavnIntent = Intent(Intent.ACTION_VIEW, Uri.parse(saavnTarget)).apply {
-                setFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            if (saavnIntent.resolveActivity(packageManager) != null) {
-                val saavnPending = PendingIntent.getActivity(this, 8084, saavnIntent, pendingFlags)
-                builder.addAction(android.R.drawable.ic_media_play, "OPEN JIOSAAVN", saavnPending)
-            }
+            builder.addAction(android.R.drawable.ic_media_play, actionTitle, platformPending)
         }
 
         notificationManager.notify(NOTIFICATION_ALARM_ID, builder.build())

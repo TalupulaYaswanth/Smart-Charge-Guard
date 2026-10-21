@@ -193,10 +193,70 @@ class BatteryService {
     }
   }
 
+  Future<bool> requestBatteryOptimizationsExemption() => requestIgnoreBatteryOptimizations();
+
   Future<bool> isIgnoringBatteryOptimizations() async {
     try {
       return await _channel.invokeMethod<bool>('isIgnoringBatteryOptimizations') ?? false;
     } catch (_) {
+      return false;
+    }
+  }
+
+  /// Checks if an app like Spotify (com.spotify.music) or JioSaavn (com.jiosaavn.android) is installed
+  Future<bool> isAppInstalled(String packageName) async {
+    try {
+      final installed = await _channel.invokeMethod<bool>('isAppInstalled', {'packageName': packageName});
+      return installed ?? false;
+    } catch (e) {
+      debugPrint('Error checking if app installed: $e');
+      return false;
+    }
+  }
+
+  /// Directly tests launching a music app or web link
+  Future<bool> openAppOrUri(String platform, String uri) async {
+    try {
+      final success = await _channel.invokeMethod<bool>('openAppOrUri', {
+        'platform': platform,
+        'uri': uri,
+      });
+      return success ?? false;
+    } catch (e) {
+      debugPrint('Error opening app or uri: $e');
+      return false;
+    }
+  }
+
+
+  /// Checks device security integrity: detects Root, Live Debugger, and Emulator
+  Future<Map<String, dynamic>> getSecurityStatus() async {
+    try {
+      final status = await _channel.invokeMapMethod<String, dynamic>('getSecurityStatus');
+      return status ?? {
+        'isRooted': false,
+        'isDebugger': false,
+        'isEmulator': false,
+        'isSecure': true,
+      };
+    } catch (e) {
+      debugPrint('Error checking device security status: $e');
+      return {
+        'isRooted': false,
+        'isDebugger': false,
+        'isEmulator': false,
+        'isSecure': true,
+      };
+    }
+  }
+
+  /// Toggles Window FLAG_SECURE to block screen recording malware and unauthorized screenshots
+  Future<bool> setScreenSecure(bool enable) async {
+    try {
+      final success = await _channel.invokeMethod<bool>('setScreenSecure', {'enable': enable});
+      return success ?? false;
+    } catch (e) {
+      debugPrint('Error toggling screen security: $e');
       return false;
     }
   }

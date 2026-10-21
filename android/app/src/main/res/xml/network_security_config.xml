@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Prevent cleartext HTTP attacks and force encrypted HTTPS communication -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- Strictly trusted domains for audio metadata and streams -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">spotify.com</domain>
+        <domain includeSubdomains="true">jiosaavn.com</domain>
+        <domain includeSubdomains="true">apple.com</domain>
+        <domain includeSubdomains="true">youtube.com</domain>
+        <domain includeSubdomains="true">googlevideo.com</domain>
+    </domain-config>
+</network-security-config>

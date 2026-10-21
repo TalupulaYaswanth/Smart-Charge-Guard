@@ -15,10 +15,12 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
-    <!-- Queries to launch Spotify, JioSaavn and browser stream intents on Android 11+ -->
+    <!-- Queries to launch Spotify, JioSaavn, YouTube Music and browser stream intents on Android 11+ -->
     <queries>
         <package android:name="com.spotify.music" />
         <package android:name="com.jiosaavn.android" />
+        <package android:name="com.google.android.apps.youtube.music" />
+        <package android:name="com.google.android.youtube" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="spotify" />
@@ -35,13 +37,22 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="http" />
         </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="vnd.youtube" />
+        </intent>
+        <intent>
+            <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
+        </intent>
     </queries>
 
     <application
         android:label="ChargeAlarm"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:usesCleartextTraffic="true">
+        android:allowBackup="false"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:usesCleartextTraffic="false">
 
         <activity
             android:name=".MainActivity"
